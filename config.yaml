@@ -1,0 +1,59 @@
+# Configuration for sync.py — the only file people should edit.
+# The sync never edits this file itself; it only suggests changes in its report.
+
+spreadsheet_id: 17Ucxb0Nze7ZJCTH8AD-ZTn2Dl4nbYpWw0O2xwtLIelc
+
+# Tabs to process. Empty list = every tab in the spreadsheet (unsuitable tabs
+# are skipped automatically and listed in the report).
+tabs: []
+
+# Name in the sheet's "Спец" column -> monday.com board ID
+specialists:
+  Панина Аня: 7120872180
+  Сухенко Юрий: 18393117669
+  Дубинко Денис: 3683118167
+  Наташа Ходко: 18072517756
+  Марина Ярославова: 18408563989
+  Валера: 9276964627
+  Вова: 9317710455
+  Яна: 18420657783
+  # Настя Хитрова: <board id>        # no board yet — rows are skipped and reported
+  # Владислав Щербаков: <board id>   # no board yet — rows are skipped and reported
+
+# monday tag -> sheet tab, when they differ. By default a tag equals the tab name.
+tag_aliases: {}
+
+# Tags that are not projects.
+ignored_tags:
+  - регулярная
+  - колл
+  - планерка
+  - satellite
+  - weekly
+  - обучение
+  - операционка
+  - СПК
+
+# Tags that look like a project but are ambiguous: items with them are only reported.
+report_only_tags:
+  - libertex
+
+# Sheet task names that are generic and can't be matched by name alone.
+# They are paired with items starting with the same first word, only when counts are equal.
+generic_names:
+  - Обновление статьи
+  - Крупный апдейт
+  - Новая статья CFD
+
+# Column titles (case-insensitive)
+columns:
+  sheet_specialist: Спец
+  sheet_sprint: Спринт
+  sheet_hours: Часы факт
+  sheet_item_id: monday_item_id
+  monday_hours: Часы факт
+  monday_tags: Теги
+
+groups_limit: 8           # most recent sprint groups read on each board
+max_f_changes: 50         # safety stop: more F changes than this -> write nothing
+reset_threshold: 0.5      # share of stale IDs in column G that means "list changed, nobody cleared G"
