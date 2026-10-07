@@ -1,0 +1,61 @@
+name: Nightly hours sync
+
+on:
+  schedule:
+    - cron: "0 23 * * *"   # 02:00 Moscow time (GitHub cron is UTC)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run (writes nothing) or apply (writes columns F/G)"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hours-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MONDAY_TOKEN: ${{ secrets.MONDAY_TOKEN }}
+      GOOGLE_SA_JSON: ${{ secrets.GOOGLE_SA_JSON }}
+      # Scheduled runs apply; manual runs use the chosen mode.
+      MODE: ${{ github.event_name == 'schedule' && 'apply' || inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -q -r requirements.txt
+
+      - name: Tests
+        run: python -m pytest -q tests
+
+      - name: Sync
+        run: python sync.py --$MODE --report reports/report.md
+
+      - name: Report in the run summary
+        if: always()
+        run: |
+          if [ -f reports/report.md ]; then cat reports/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+          for f in logs/log-*.log; do [ -f "$f" ] && { echo '```'; cat "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"; done
+
+      - name: Keep report and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-${{ github.run_number }}
+          path: |
+            reports/
+            logs/log-*.log
+          if-no-files-found: ignore
+          retention-days: 90

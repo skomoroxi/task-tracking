@@ -171,7 +171,7 @@ Monday is the source of truth. When a row is matched, its F follows monday even 
 
 Send all writes in **one batch per run** (`values.batchUpdate`, columns F and G only). Before writing, re-read `F:G` on the affected tabs. If a cell changed since step 3, skip it and report it.
 
-**Safety stop:** if more than 50 F cells would change in one run, or reset detection fired on any tab, write nothing and send the report.
+**Safety stop:** write nothing and send the report if, in one run, more than 50 F cells would change, reset detection fired on any tab, a filled F cell would change more than 3× (up or down) or become empty (except rows whose stale ID was just cleared), or a monday.com board could not be read.
 
 ---
 
