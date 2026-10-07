@@ -350,6 +350,29 @@ def test_safety_stop_when_a_board_cannot_be_read():
     assert rep.board_errors and rep.stopped.startswith("could not read board") and not sh.writes
 
 
+def test_main_strips_whitespace_around_secrets():
+    import tempfile
+    seen = {}
+    old = sync.SheetsClient, sync.MondayReader, dict(os.environ)
+
+    def reader(token):
+        seen["token"] = token
+        raise RuntimeError("stop here")
+    sync.SheetsClient = lambda sa, sid: seen.setdefault("sa", sa)
+    sync.MondayReader = reader
+    os.environ.update(MONDAY_TOKEN="  abc123\n", GOOGLE_SA_JSON='\n{"a": 1}\n')
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                sync.main(["--dry-run", "--log-dir", d])
+            except RuntimeError:
+                pass
+        assert seen == {"sa": '{"a": 1}', "token": "abc123"}
+    finally:
+        sync.SheetsClient, sync.MondayReader = old[0], old[1]
+        os.environ.clear()
+        os.environ.update(old[2])
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

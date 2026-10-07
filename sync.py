@@ -854,7 +854,9 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     now = dt.datetime.now()
-    token, sa = os.environ.get("MONDAY_TOKEN"), os.environ.get("GOOGLE_SA_JSON")
+    # Secrets pasted into CI settings often carry a trailing newline or spaces; an HTTP header can't.
+    token = (os.environ.get("MONDAY_TOKEN") or "").strip()
+    sa = (os.environ.get("GOOGLE_SA_JSON") or "").strip()
     if not token or not sa:
         print("Set MONDAY_TOKEN and GOOGLE_SA_JSON", file=sys.stderr)
         write_log(a.log_dir, now, render_log(now, a.apply, None, "Set MONDAY_TOKEN and GOOGLE_SA_JSON"))
