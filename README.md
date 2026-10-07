@@ -41,6 +41,10 @@ python sync.py --dry-run --tabs "hero-sms.com,planner5d.com"   # only some tabs
 python -m pytest -q tests
 ```
 
+Every run (dry or apply) also writes `logs/log-YYYY-MM-DD_HH-MM-SS.log` with the cells actually
+written (`tab!F12: old -> new`) and the errors: safety stop, unreadable boards, skipped tabs, cells changed
+during the run, and the traceback if the script crashed. `--log-dir` changes the folder.
+
 Exit code 1 means a safety stop (nothing was written): reset detection fired on a tab, or more than
 `max_f_changes` cells would change.
 

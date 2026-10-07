@@ -6,6 +6,8 @@ Implements nightly-sync-algorithm.md (version 2).
     python sync.py --dry-run            # read everything, print the plan and the report
     python sync.py --apply              # same, then write columns F/G in one batch
 
+Every run also writes logs/log-YYYY-MM-DD_HH-MM-SS.log: the cells actually written and the errors.
+
 Environment:
     MONDAY_TOKEN     monday.com API token (read-only use: the script never sends mutations)
     GOOGLE_SA_JSON   service-account JSON (the JSON text itself or a path to the file)
@@ -19,6 +21,7 @@ import json
 import os
 import re
 import sys
+import traceback
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
@@ -240,6 +243,7 @@ class Report:
     board_errors: list[tuple] = field(default_factory=list)
     alias_suggestions: set = field(default_factory=set)
     concurrent_skips: list[tuple] = field(default_factory=list)
+    written_cells: list[tuple] = field(default_factory=list)  # (tab,a1,old,new), only after a successful write
     stopped: str = ""
     written: bool = False
 
@@ -689,15 +693,18 @@ def run(cfg: dict, sheets, reader, apply: bool, only_tabs: list[str] | None = No
             for n, r in enumerate(vals, start=1):
                 for c in cols[t]:
                     now[(t, n, c)] = str(r[c]).strip() if len(r) > c and r[c] is not None else ""
-        data = []
+        data, cells = [], []
         for k, v in writes.items():
             assert k[2] in cols[k[0]], "refusing to write outside columns F/G"
             if now.get(k, "") != expected[k]:
                 report.concurrent_skips.append(k)
                 continue
-            data.append({"range": f"{quote_tab(k[0])}!{col_letter(k[2])}{k[1]}", "values": [[v]]})
+            a1 = f"{col_letter(k[2])}{k[1]}"
+            data.append({"range": f"{quote_tab(k[0])}!{a1}", "values": [[v]]})
+            cells.append((k[0], a1, expected[k], v))
         if data:
             sheets.write(data)
+            report.written_cells += cells
         report.written = True
     return report
 
@@ -756,28 +763,84 @@ def render_report(rep: Report, apply: bool) -> str:
     return "\n".join(L)
 
 
+def log_name(now: dt.datetime) -> str:
+    # No ':' in the time: it is not allowed in file names on Windows and breaks git checkouts there.
+    return f"log-{now:%Y-%m-%d_%H-%M-%S}.log"
+
+
+def render_log(now: dt.datetime, apply: bool, rep: Optional[Report], error: str = "") -> str:
+    """Plain-text run log: the cells actually written and everything that went wrong."""
+    mode = "APPLY" if apply else "DRY RUN"
+    L = [f"Sync log {now:%Y-%m-%d %H:%M:%S} ({mode})"]
+    if error:
+        L.append("Result: FAILED, nothing was written")
+    elif rep.stopped:
+        L.append(f"Result: SAFETY STOP, nothing was written: {rep.stopped}")
+    elif not apply:
+        L.append(f"Result: dry run, nothing was written ({len(rep.f_changes)} F / {rep.g_changes} G cells would change)")
+    else:
+        L.append(f"Result: OK, {len(rep.written_cells)} cells written")
+
+    cells = rep.written_cells if rep else []
+    L += ["", f"== Updated cells ({len(cells)}) =="]
+    L += [f"{t}!{a1}: {old or '(empty)'} -> {new if new != '' else '(empty)'}" for t, a1, old, new in cells]
+
+    errs = []
+    if error:
+        errs.append(error.rstrip())
+    if rep:
+        if rep.stopped:
+            errs.append(f"Safety stop: {rep.stopped}")
+        errs += [f"Board not read: {s}: {e}" for s, e in rep.board_errors]
+        errs += [f"Not written, cell changed during the run: {t}!{col_letter(c)}{n}"
+                 for t, n, c in rep.concurrent_skips]
+        errs += [f"Tab not written, column G looks stale (task list changed): {t}" for t in rep.reset_tabs]
+        errs += [f"Tab skipped: {t}: {why}" for t, why in rep.skipped_tabs]
+    L += ["", f"== Errors ({len(errs)}) =="] + errs
+    return "\n".join(L) + "\n"
+
+
+def write_log(log_dir: str, now: dt.datetime, text: str) -> str:
+    os.makedirs(log_dir, exist_ok=True)
+    path = os.path.join(log_dir, log_name(now))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path
+
+
 def main(argv=None) -> int:
+    here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--apply", action="store_true")
-    ap.add_argument("--config", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"))
+    ap.add_argument("--config", default=os.path.join(here, "config.yaml"))
     ap.add_argument("--tabs", help="comma-separated tab names (overrides config)")
     ap.add_argument("--report", help="also save the report to this file")
+    ap.add_argument("--log-dir", default=os.path.join(here, "logs"), help="folder for log-<date_time>.log")
     a = ap.parse_args(argv)
 
-    cfg = yaml.safe_load(open(a.config, encoding="utf-8"))
+    now = dt.datetime.now()
     token, sa = os.environ.get("MONDAY_TOKEN"), os.environ.get("GOOGLE_SA_JSON")
     if not token or not sa:
         print("Set MONDAY_TOKEN and GOOGLE_SA_JSON", file=sys.stderr)
+        write_log(a.log_dir, now, render_log(now, a.apply, None, "Set MONDAY_TOKEN and GOOGLE_SA_JSON"))
         return 2
-    rep = run(cfg, SheetsClient(sa, cfg["spreadsheet_id"]), MondayReader(token), a.apply,
-              [t.strip() for t in a.tabs.split(",")] if a.tabs else None)
+    try:
+        cfg = yaml.safe_load(open(a.config, encoding="utf-8"))
+        rep = run(cfg, SheetsClient(sa, cfg["spreadsheet_id"]), MondayReader(token), a.apply,
+                  [t.strip() for t in a.tabs.split(",")] if a.tabs else None)
+    except Exception:
+        path = write_log(a.log_dir, now, render_log(now, a.apply, None, traceback.format_exc()))
+        print(f"Log: {path}", file=sys.stderr)
+        raise
     text = render_report(rep, a.apply)
     print(text)
     if a.report:
         os.makedirs(os.path.dirname(os.path.abspath(a.report)), exist_ok=True)
         open(a.report, "w", encoding="utf-8").write(text)
+    path = write_log(a.log_dir, now, render_log(now, a.apply, rep))
+    print(f"Log: {path}", file=sys.stderr)
     return 1 if rep.stopped else 0
 
 
