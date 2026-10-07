@@ -267,6 +267,51 @@ def test_safety_stop_on_too_many_changes():
     assert rep.stopped and not sh.writes
 
 
+def test_log_lists_written_cells_and_errors():
+    sh = FakeSheets(sheet_data())
+    rep = sync.run(CFG, sh, FakeReader(), apply=True)
+    now = dt.datetime(2026, 10, 7, 11, 48, 5)
+    assert sync.log_name(now) == "log-2026-10-07_11-48-05.log"
+    log = sync.render_log(now, True, rep)
+    assert f"Result: OK, {len(sh.writes)} cells written" in log
+    assert len(rep.written_cells) == len(sh.writes)
+    assert "libertex.com!F5: (empty) -> 0.5" in log
+    assert "libertex.com!G5: (empty) -> 13147072294" in log
+
+
+def test_log_on_safety_stop_has_no_written_cells():
+    rep = sync.run(dict(CFG, max_f_changes=2), FakeSheets(sheet_data()), FakeReader(), apply=True)
+    log = sync.render_log(dt.datetime(2026, 10, 7), True, rep)
+    assert "Result: SAFETY STOP" in log and "== Updated cells (0) ==" in log
+    assert "Safety stop:" in log
+
+
+def test_main_writes_log_on_crash():
+    import tempfile
+    old = sync.SheetsClient, dict(os.environ)
+
+    def boom(*a, **k):
+        raise RuntimeError("sheet not shared with the service account")
+    sync.SheetsClient = boom
+    os.environ.update(MONDAY_TOKEN="x", GOOGLE_SA_JSON="{}")
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                sync.main(["--apply", "--log-dir", d])
+                assert False, "expected the error to propagate"
+            except RuntimeError:
+                pass
+            (name,) = os.listdir(d)
+            assert name.startswith("log-") and name.endswith(".log")
+            log = open(os.path.join(d, name), encoding="utf-8").read()
+            assert "Result: FAILED, nothing was written" in log
+            assert "sheet not shared with the service account" in log
+    finally:
+        sync.SheetsClient = old[0]
+        os.environ.clear()
+        os.environ.update(old[1])
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

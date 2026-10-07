@@ -29,7 +29,8 @@ holds the settings.
      from a number to empty) and the row wasn't in "Stale IDs cleared", or
    - reading a board or the sheet failed.
 5. Otherwise: `python sync.py --apply --report reports/apply.md`.
-6. Send the apply report as your final message, adding at the top a 2–3 line summary:
+6. Each run writes `logs/log-<date_time>.log` (cells written + errors). Mention its file name in the report.
+7. Send the apply report as your final message, adding at the top a 2–3 line summary:
    cells written, anything that needs a person (reset detection, unreadable boards,
    specialists without a board, new tags to alias).
 
