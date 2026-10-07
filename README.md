@@ -30,6 +30,21 @@ How matching works: [docs/nightly-sync-algorithm.md](docs/nightly-sync-algorithm
 4. **Scheduled task** in Claude Code on this repo, every day at 02:00 Moscow time
    (`CRON_TZ=Europe/Moscow 0 2 * * *`), prompt: *"Run the nightly sync as described in CLAUDE.md."*
 
+## Running on GitHub Actions (no Claude needed)
+
+`.github/workflows/sync.yml` runs the tests and then the sync every night at 02:00 Moscow time
+(`--apply`), and on demand from the Actions tab (choose `dry-run` or `apply`).
+
+1. Repository → Settings → Secrets and variables → Actions → New repository secret:
+   `MONDAY_TOKEN` = the monday.com token, `GOOGLE_SA_JSON` = the whole JSON key file content.
+2. Merge the workflow into the default branch: GitHub runs scheduled workflows only from there.
+3. Each run shows the report and the log in its summary page and keeps them as a downloadable
+   artifact for 90 days. A failed run (tests fail, safety stop, error) is marked red and GitHub
+   emails the repository owner.
+
+Unlike the Claude run, the workflow doesn't check for "more than 3×" or "number → empty" overwrites
+(see CLAUDE.md, step 4); the script's own safety stop and reset detection still apply.
+
 ## Running by hand
 
 ```bash
