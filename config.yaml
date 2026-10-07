@@ -54,6 +54,6 @@ columns:
   monday_hours: Часы факт
   monday_tags: Теги
 
-groups_limit: 8           # most recent sprint groups read on each board
-max_f_changes: 50         # safety stop: more F changes than this -> write nothing
+groups_limit: 10           # most recent sprint groups read on each board
+max_f_changes: 3000         # safety stop: more F changes than this -> write nothing
 reset_threshold: 0.5      # share of stale IDs in column G that means "list changed, nobody cleared G"
