@@ -24,10 +24,10 @@ holds the settings.
 2. `python -m pytest -q tests` — if tests fail, stop and report; don't run the sync.
 3. `python sync.py --dry-run --report reports/dry-run.md` and read the report.
 4. Stop and report instead of applying when:
-   - the report starts with **SAFETY STOP** (exit code 1), or
-   - a change overwrites a non-empty F value with a very different number (more than 3× or
-     from a number to empty) and the row wasn't in "Stale IDs cleared", or
-   - reading a board or the sheet failed.
+   - the report starts with **SAFETY STOP** (exit code 1). `sync.py` itself stops on: reset detection,
+     more than `max_f_changes` F changes, a filled F value changing more than 3× or to empty (unless
+     the row is in "Stale IDs cleared"), and an unreadable board; or
+   - reading the sheet failed (the script exits with an error).
 5. Otherwise: `python sync.py --apply --report reports/apply.md`.
 6. Each run writes `logs/log-<date_time>.log` (cells written + errors). Mention its file name in the report.
 7. Send the apply report as your final message, adding at the top a 2–3 line summary:

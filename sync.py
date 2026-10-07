@@ -243,6 +243,7 @@ class Report:
     board_errors: list[tuple] = field(default_factory=list)
     alias_suggestions: set = field(default_factory=set)
     concurrent_skips: list[tuple] = field(default_factory=list)
+    big_overwrites: list[tuple] = field(default_factory=list)  # f_changes entries that trip the overwrite check
     written_cells: list[tuple] = field(default_factory=list)  # (tab,a1,old,new), only after a successful write
     stopped: str = ""
     written: bool = False
@@ -607,6 +608,26 @@ def plan_tab(tab: TabData, boards: dict[str, Board], cfg: dict, report: Report):
 # --------------------------------------------------------------------------------------
 
 
+def find_big_overwrites(report: Report, ratio: float) -> list[tuple]:
+    """F changes that replace a filled number with a very different one (more than `ratio` times
+    bigger or smaller) or with nothing. Rows whose stale ID was just cleared are expected to change."""
+    stale_rows = {(t, n) for t, n, *_ in report.stale}
+    out = []
+    for ch in report.f_changes:
+        t, n, _, _, old, new = ch
+        o = parse_hours(old)
+        if o is None or (t, n) in stale_rows:
+            continue
+        nv = parse_hours(new)
+        if nv is None:
+            out.append(ch)
+            continue
+        lo, hi = sorted((abs(o), abs(nv)))
+        if hi > 0 and (lo == 0 or hi / lo > ratio):
+            out.append(ch)
+    return out
+
+
 def run(cfg: dict, sheets, reader, apply: bool, only_tabs: list[str] | None = None) -> Report:
     report = Report(started=dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
     all_titles = sheets.tab_titles()
@@ -678,10 +699,16 @@ def run(cfg: dict, sheets, reader, apply: bool, only_tabs: list[str] | None = No
                 report.unmatched_items.append(it)
 
     # safety stop
+    report.big_overwrites = find_big_overwrites(report, cfg.get("max_overwrite_ratio", 3))
     if report.reset_tabs:
         report.stopped = "reset detection fired on: " + ", ".join(report.reset_tabs)
     elif len(report.f_changes) > cfg["max_f_changes"]:
         report.stopped = f"{len(report.f_changes)} F cells would change (limit {cfg['max_f_changes']})"
+    elif report.big_overwrites:
+        report.stopped = (f"{len(report.big_overwrites)} filled F cells would change more than "
+                          f"{cfg.get('max_overwrite_ratio', 3)}x or become empty")
+    elif report.board_errors:
+        report.stopped = "could not read board(s): " + ", ".join(s for s, _ in report.board_errors)
 
     if apply and not report.stopped and writes:
         # re-read F:G of affected tabs and skip cells changed since the first read
@@ -723,6 +750,10 @@ def render_report(rep: Report, apply: bool) -> str:
         for t, n, name, sp, old, new in rep.f_changes:
             L.append(f"| {t} | {n} | {name[:70]} | {sp} | {old or '∅'} → {new if new != '' else '∅'} |")
         L.append("")
+    if rep.big_overwrites:
+        L.append("## Filled F cells that would change a lot (stopped the run — check them by hand)")
+        L += [f"- {t} row {n}: {name[:60]} · {sp} · {old} → {new if new != '' else '∅'}"
+              for t, n, name, sp, old, new in rep.big_overwrites] + [""]
     if rep.concurrent_skips:
         L.append("## Skipped: cell changed during the run")
         L += [f"- {t} {col_letter(c)}{n}" for t, n, c in rep.concurrent_skips] + [""]
@@ -791,6 +822,8 @@ def render_log(now: dt.datetime, apply: bool, rep: Optional[Report], error: str 
     if rep:
         if rep.stopped:
             errs.append(f"Safety stop: {rep.stopped}")
+        errs += [f"Big overwrite, not written: {t}!row {n} ({name[:60]}): {old} -> {new if new != '' else '(empty)'}"
+                 for t, n, name, _, old, new in rep.big_overwrites]
         errs += [f"Board not read: {s}: {e}" for s, e in rep.board_errors]
         errs += [f"Not written, cell changed during the run: {t}!{col_letter(c)}{n}"
                  for t, n, c in rep.concurrent_skips]

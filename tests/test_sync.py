@@ -12,6 +12,8 @@ import sync  # noqa: E402
 CFG = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "..", "config.yaml"), encoding="utf-8"))
 H = ["Название задачи", "Спец", "Спринт", "Статус", "Часы план", "Часы факт"]
 D, A, Y = "Дубинко Денис", "Панина Аня", "Сухенко Юрий"
+# Only the specialists whose boards are in BOARDS below; the others would be unreadable boards.
+CFG["specialists"] = {s: b for s, b in CFG["specialists"].items() if b in (3683118167, 7120872180, 18393117669)}
 S28, S05, S19 = "28.09.2026 - 04.10.2026", "05.10.2026 - 11.10.2026", "19.10.2026 -25.10.2026"
 
 
@@ -310,6 +312,42 @@ def test_main_writes_log_on_crash():
         sync.SheetsClient = old[0]
         os.environ.clear()
         os.environ.update(old[1])
+
+
+def test_big_overwrite_rules():
+    rep = sync.Report()
+    rep.f_changes = [
+        ("t", 2, "a", "", "1", 1.2),      # small change: fine
+        ("t", 3, "b", "", "", 5),         # empty -> number: fine
+        ("t", 4, "c", "", "0.5", 2),      # 4x up: stop
+        ("t", 5, "d", "", "6", 1),        # 6x down: stop
+        ("t", 6, "e", "", "0,2", ""),     # number -> empty: stop
+        ("t", 7, "f", "", "0.2", ""),     # number -> empty, but its stale ID was cleared: fine
+        ("t", 8, "g", "", "0", 1),        # 0 -> 1: stop
+    ]
+    rep.stale = [("t", 7, "f", "123")]
+    assert [c[1] for c in sync.find_big_overwrites(rep, 3)] == [4, 5, 6, 8]
+
+
+def test_safety_stop_on_big_overwrite():
+    data = sheet_data()
+    data["libertex.com"][4] = data["libertex.com"][4][:5] + ["5"]   # monday says 0.5 -> 10x
+    sh = FakeSheets(data)
+    rep = sync.run(CFG, sh, FakeReader(), apply=True)
+    assert rep.stopped and "more than 3x" in rep.stopped and not sh.writes
+    assert [(c[0], c[1]) for c in rep.big_overwrites] == [("libertex.com", 5)]
+    assert "Big overwrite, not written: libertex.com!row 5" in sync.render_log(dt.datetime(2026, 10, 7), True, rep)
+
+
+def test_safety_stop_when_a_board_cannot_be_read():
+    class BrokenReader(FakeReader):
+        def board_meta(self, bid):
+            if bid == next(iter(BOARDS)):
+                raise RuntimeError("401 Unauthorized")
+            return super().board_meta(bid)
+    sh = FakeSheets(sheet_data())
+    rep = sync.run(CFG, sh, BrokenReader(), apply=True)
+    assert rep.board_errors and rep.stopped.startswith("could not read board") and not sh.writes
 
 
 if __name__ == "__main__":

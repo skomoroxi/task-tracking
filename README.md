@@ -42,8 +42,8 @@ How matching works: [docs/nightly-sync-algorithm.md](docs/nightly-sync-algorithm
    artifact for 90 days. A failed run (tests fail, safety stop, error) is marked red and GitHub
    emails the repository owner.
 
-Unlike the Claude run, the workflow doesn't check for "more than 3×" or "number → empty" overwrites
-(see CLAUDE.md, step 4); the script's own safety stop and reset detection still apply.
+The workflow has the same protection as the Claude run: the script itself refuses to write when
+any of the safety stops below fires.
 
 ## Running by hand
 
@@ -60,8 +60,12 @@ Every run (dry or apply) also writes `logs/log-YYYY-MM-DD_HH-MM-SS.log` with the
 written (`tab!F12: old -> new`) and the errors: safety stop, unreadable boards, skipped tabs, cells changed
 during the run, and the traceback if the script crashed. `--log-dir` changes the folder.
 
-Exit code 1 means a safety stop (nothing was written): reset detection fired on a tab, or more than
-`max_f_changes` cells would change.
+Exit code 1 means a safety stop (nothing was written). The script stops when:
+- reset detection fired on a tab (the task list changed but column G wasn't cleared);
+- more than `max_f_changes` F cells would change;
+- a filled F cell would change more than `max_overwrite_ratio` times (up or down) or become empty,
+  unless its row's stale ID was just cleared;
+- a monday.com board could not be read.
 
 ## Every month, when the task list is rebuilt
 
