@@ -17,8 +17,8 @@ specialists:
   Валера: 9276964627
   Вова: 9317710455
   Яна: 18420657783
+  Владислав Щербаков: 18414709866
   # Настя Хитрова: <board id>        # no board yet — rows are skipped and reported
-  # Владислав Щербаков: <board id>   # no board yet — rows are skipped and reported
 
 # monday tag -> sheet tab, when they differ. By default a tag equals the tab name.
 tag_aliases: {}
